@@ -1,0 +1,140 @@
+# Source transformation config — config-driven per PRD section 13.
+# Adding source 6/7 = add a block here, no code changes.
+# divisor: null = use native carton column. header_row is 0-indexed.
+
+# Global rules (locked with Annie 2026-06-11):
+#   month_dow: always computed from driving_date; log a correction whenever the
+#              source's typed month disagrees with the computed month.
+#   cartons:   stored as exact decimals; rounding happens only at display time.
+#   customer:  keep both rnd_customer (master) and end_customer (drill-down).
+globals:
+  # PRODUCTION drop folder: where the live daily files land (Gmail fetcher writes
+  # here; you drop Americhine/RDG portal exports here too). The pipeline + dashboard
+  # read this folder.
+  drop_folder: "~/Desktop/Warehouse Daily Reports"
+  # PRISTINE samples used ONLY by reconcile.py to prove the math still matches the
+  # manual report. Kept separate so live data can never disturb the trust contract.
+  sample_folder: "~/Desktop/warehouse armando final "
+  month_dow_source: computed_from_date
+  log_month_corrections: true
+  carton_storage: exact_decimal
+  carton_display_rounding: nearest
+  carton_floor: none            # Q4: keep exact computed value (no min-1 floor)...
+  flag_sub1_cartons: true       # ...but flag <1 carton rows to logs/carton_review.csv
+  # Capacity thresholds (Annie 2026-07-01). Any period whose TOTAL cartons
+  # exceeds these is flagged CRITICAL at the top of the dashboard.
+  thresholds:
+    daily_cartons: 12000
+    weekly_cartons: 65000       # week = Mon–Sun
+    monthly_cartons: 320000
+
+sources:
+  catalyst:
+    display_name: Catalyst
+    file_glob: "Catalyst*.xlsx"
+    system: Full Circle ERP
+    delivery: email           # 6:00 AM Mon-Fri
+    file_format: xlsx
+    sheet: Original
+    header_row: 0
+    rnd_customer: Catalyst    # static label for this whole source
+    end_customer_col: "Customer Name"
+    driving_date_col: "PO Due Date"
+    carton:
+      method: divide
+      qty_col: "Original Quantity"
+      divisor: 12
+    cancel_date_col: null
+    preclean: []
+    email:                      # Gmail auto-ingest (forwarded by Armando)
+      subject_contains: "RND INBOUND TRACKING REPORT"
+      out_name: "Catalyst RND Inbound Tracking {date}.xlsx"   # matches file_glob
+
+  mlg:
+    display_name: MLG
+    file_glob: "MLG*.xlsx"
+    system: Exenta
+    delivery: email           # 10:45 AM daily
+    file_format: xlsx
+    sheet: Original
+    header_row: 5             # 4 preamble rows marked "Delete"
+    rnd_customer: MLG
+    end_customer_col: "Customer Name"
+    driving_date_col: "Start Date"
+    keep_extra: ["WH"]        # 16=La Mirada/LM, 14=La Palma/LP
+    carton:
+      method: column_with_fallback
+      qty_col: "Pick Qty"     # renamed to Units
+      carton_col: "CTN"       # renamed to Cartons
+      fallback_when_zero: true
+      fallback_divisor: 12
+    cancel_date_col: "Cancel"
+    preclean: []
+    email:
+      subject_contains: "Open Picks for RND La Mirada"
+      out_name: "MLG Open Picks La Mirada {date}.xlsx"
+
+  novo:
+    display_name: Novo
+    file_glob: "Novo*.xlsx"
+    system: Momentis
+    delivery: email           # 1:00 AM Mon-Fri
+    file_format: xlsx
+    sheet: Original
+    header_row: 0
+    rnd_customer: Novo
+    end_customer_col: "Customer Name"
+    driving_date_col: "Ship Date"
+    carton:
+      method: column          # native, no divisor
+      carton_col: "# of Cartons"
+    cancel_date_col: "Cancel Date"
+    preclean: []
+    email:
+      subject_contains: "Novo Open Pick Report"
+      out_name: "Novo Open Pick Report {date}.xlsx"
+
+  americhine:
+    display_name: Americhine / Indochine / RND
+    file_glob: "Americhine*.xlsx"
+    system: VSR ERP
+    delivery: portal          # manual pull, then export -> folder/API
+    file_format: xlsx
+    sheet: Original
+    header_row: 0
+    rnd_customer_col: "Company"   # DYNAMIC: splits into Americhine/Indochine/RND
+    end_customer_col: "Cust. Name"
+    driving_date_col: "Start Date"
+    carton:
+      # Rule confirmed by Annie 2026-06-11 (reconciles EXACTLY to pivot
+      # 1,172,010.1333): keep native first "Cartons"; if 0 -> Open Balance / 30.
+      # (PRD's "All Open / 9" was wrong -- gave 37x.) Column BK = the 2nd
+      # "Cartons" column ("Cartons.1") is ignored: we use the first occurrence.
+      method: column_with_fallback
+      carton_col: "Cartons"       # first occurrence = line carton count
+      fallback_col: "Open Balance"
+      fallback_divisor: 30
+      qty_col: "All Open"         # retained as units for reference
+    cancel_date_col: "Cancel Date"
+    preclean: []
+
+  rdg:
+    display_name: RDG
+    file_glob: "RDG*.xls"
+    system: VSR ERP
+    delivery: portal          # manual pull, then export -> folder/API
+    file_format: xls          # legacy; dates stored as serials
+    sheet: Original
+    header_row: 3             # title block rows 0-2
+    rnd_customer: RDG
+    end_customer_col: "Cust. Name"
+    driving_date_col: "Start Date"
+    carton:
+      method: divide
+      qty_col: "All Open"
+      divisor: 9
+    cancel_date_col: "Cancel Date"
+    preclean:
+      - drop_rows_where_date: "Cust. No."   # remove rows where Cust No is a date value
+
+# Future sources 6 & 7: Armando to confirm (PRD section 7).
