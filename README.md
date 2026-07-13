@@ -2,7 +2,10 @@
 
 Automates the daily manual process: ingest 5 source exports → apply each source's
 cleaning rules → one consolidated carton dataset → web dashboard with pivot, charts,
-and (coming) natural-language Q&A.
+and natural-language Q&A.
+
+> **New here / setting up on a fresh machine?** Read **[SETUP.md](SETUP.md)** — a
+> step-by-step install, run, dependencies, and "path to production" guide.
 
 ## How to use it (no terminal needed)
 
