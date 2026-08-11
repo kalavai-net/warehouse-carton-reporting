@@ -25,6 +25,7 @@ import logging
 import os
 import sys
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -156,6 +157,20 @@ def read_raw(src, cfg: dict, label: str | None = None) -> pd.DataFrame:
         sheet = 0
     df = pd.read_excel(xls, sheet_name=sheet, header=header_row, dtype=object)
     df = normalize_headers(df)
+    # Live exports sometimes drop the preamble/title block the samples had (or
+    # add one), shifting the header row. If the driving-date column isn't where
+    # the config says, scan the first rows to find the real header.
+    want = cfg.get("driving_date_col")
+    if want and want not in df.columns:
+        probe = pd.read_excel(xls, sheet_name=sheet, header=None, nrows=12, dtype=object)
+        for i, row in probe.iterrows():
+            names = {" ".join(str(v).split()) for v in row.tolist()}
+            if want in names:
+                log.info("  header auto-detected on row %d (config said %s) in %s",
+                         i, header_row, name)
+                df = normalize_headers(
+                    pd.read_excel(xls, sheet_name=sheet, header=i, dtype=object))
+                break
     log.info("  read %d rows x %d cols from %s [%s]", len(df), df.shape[1], name, sheet)
     return df
 
@@ -173,9 +188,15 @@ def derive_cartons(df: pd.DataFrame, cfg: dict, source: str) -> pd.Series:
         fb_col = c.get("fallback_col", c.get("qty_col"))
         fb_qty = pd.to_numeric(df[fb_col], errors="coerce")
         fallback = fb_qty / c["fallback_divisor"]
+        rounding = c.get("fallback_round")           # e.g. Novo: 'ceil' (round up)
+        if rounding == "ceil":
+            fallback = np.ceil(fallback)
+        elif rounding == "nearest":
+            fallback = fallback.round()
         n_fb = int((cart.fillna(0) == 0).sum())
-        log.info("  [%s] carton fallback (%s==0 -> %s/%s) applied to %d rows",
-                 source, c["carton_col"], fb_col, c["fallback_divisor"], n_fb)
+        log.info("  [%s] carton fallback (%s==0 -> %s/%s%s) applied to %d rows",
+                 source, c["carton_col"], fb_col, c["fallback_divisor"],
+                 f", {rounding}" if rounding else "", n_fb)
         return cart.where(cart.fillna(0) != 0, fallback)
     raise ValueError(f"unknown carton method: {method}")
 
@@ -284,16 +305,19 @@ def find_file(folder: str, cfg: dict) -> str | None:
 
 
 def run(folder: str, only: str | None = None, buffers: dict | None = None,
-        source_dates: dict | None = None) -> pd.DataFrame:
+        source_dates: dict | None = None, upload_sources: set | None = None) -> pd.DataFrame:
     """Build the consolidated dataset.
 
     buffers: optional {source_key: bytes} of in-memory workbooks (e.g. Gmail
-    attachments). When given, email sources are read from memory (nothing
-    written to disk) and any email source NOT supplied is skipped; portal
-    sources (americhine/rdg) are still read from `folder`. When buffers is None,
-    every source is read from `folder` (used by reconcile and folder rebuilds).
+    attachments, or files Armando drag-drops in the dashboard). When given, email
+    sources are read from memory (nothing written to disk) and any email source
+    NOT supplied is skipped; portal sources (americhine/rdg) are still read from
+    `folder`. When buffers is None, every source is read from `folder`.
+    upload_sources: keys in `buffers` that came from a manual upload (labeled as
+    such in the freshness panel, timestamped now).
     """
     config = load_config()
+    upload_sources = upload_sources or set()
     corrections: list = []
     frames = []
     status: dict = {}  # per-source "last updated" provenance for the dashboard
@@ -303,11 +327,18 @@ def run(folder: str, only: str | None = None, buffers: dict | None = None,
         disp = cfg.get("display_name", source)
         buf = (buffers or {}).get(source)
         if buf is not None:
-            log.info("processing source: %s (from email, in-memory)", source)
-            raw = read_raw(buf, cfg, label=f"{source} email attachment")
-            ts = (source_dates or {}).get(source) or dt.datetime.now()
-            status[source] = {"display": disp, "origin": "Gmail",
-                              "last_updated": ts.replace(microsecond=0).isoformat()}
+            is_upload = source in upload_sources
+            log.info("processing source: %s (%s, in-memory)", source,
+                     "manual upload" if is_upload else "from email")
+            raw = read_raw(buf, cfg,
+                           label=f"{source} {'upload' if is_upload else 'email attachment'}")
+            if is_upload:
+                status[source] = {"display": disp, "origin": "Manual upload",
+                                  "last_updated": dt.datetime.now().replace(microsecond=0).isoformat()}
+            else:
+                ts = (source_dates or {}).get(source) or dt.datetime.now()
+                status[source] = {"display": disp, "origin": "Gmail",
+                                  "last_updated": ts.replace(microsecond=0).isoformat()}
         else:
             if buffers is not None and cfg.get("email"):
                 log.warning("[%s] email report not provided this run; skipping", source)

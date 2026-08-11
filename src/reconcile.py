@@ -38,9 +38,10 @@ SAMPLE_FILES = {
 # (the raw feed does not contain them; the automation follows the documented rule).
 KNOWN_NOTES = {
     "mlg": "Human rounded one CTN=0 / PickQty=3 row up to 1 carton instead of the "
-           "documented 3/12=0.25. Automation = 0.25 (rule-correct). Delta -0.75.",
-    "novo": "Human set 4 rows (Pick# 533260-533263) that have 0 cartons in the raw "
-            "feed to 1 each. Automation keeps the raw 0. Delta -4.0.",
+           "documented 3/12=0.25. Automation = 0.25 (rule-correct). Delta -0.75. "
+           "(If MLG should round up like Novo, this would also become EXACT.)",
+    # novo: RESOLVED 2026-07-21 — the 0-carton rule now rounds Pick Qty/12 UP (ceil),
+    # matching the 4 hand-set rows. Novo reconciles EXACT.
 }
 
 

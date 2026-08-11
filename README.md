@@ -6,6 +6,9 @@ and natural-language Q&A.
 
 > **New here / setting up on a fresh machine?** Read **[SETUP.md](SETUP.md)** — a
 > step-by-step install, run, dependencies, and "path to production" guide.
+>
+> **Want it always-on (usable when your Mac is off)?** See **[DEPLOY.md](DEPLOY.md)** —
+> deploy to Streamlit Community Cloud with a permanent, access-controlled link.
 
 ## How to use it (no terminal needed)
 

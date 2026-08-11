@@ -132,9 +132,12 @@ After ANY change to the transform logic, run `python3 src/reconcile.py`. Expecte
 `catalyst / americhine / rdg = EXACT`, `mlg = −0.75`, `novo = −4.0` (known,
 documented sample hand-edits). Anything else is a regression you introduced.
 
-### Daily automation (optional, macOS)
-`Install Daily Email Schedule.command` registers a launchd job that runs the Gmail
-pull every morning at 11:15. `Stop Daily Email Schedule.command` removes it.
+### Daily automation
+Built into the dashboard: while it's running, a background thread pulls Gmail and
+rebuilds once per day after 11:15 AM (catches up on wake if the Mac was asleep;
+skips if a refresh already ran that day). No OS scheduler needed — and note that
+launchd/cron can NOT be used here: macOS privacy protection (TCC) blocks
+background agents from reading Desktop folders.
 
 ---
 

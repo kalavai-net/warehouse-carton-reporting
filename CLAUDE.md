@@ -19,6 +19,10 @@ keep everything click-to-run).
 
 Live delivered files have ONE sheet named `Sheet1`/`Sheet` (not `Original` like the
 samples) — `read_raw` falls back to the first sheet when the configured one is absent.
+Live exports may also add/drop the preamble rows the samples had (2026-07-20: the new
+"RDG- Open Order Detail.xls" export has headers on row 0, not row 3) — `read_raw`
+auto-detects the header row by scanning for the driving-date column when the
+configured `header_row` doesn't contain it.
 
 ## Data flow
 
@@ -57,7 +61,7 @@ units, cancel_date, review_flag`
 |---|---|---|---|---|
 | catalyst | Catalyst*.xlsx | 0 | PO Due Date | Original Quantity ÷ 12 (ignore native Carton Count) |
 | mlg | MLG*.xlsx | 5 (4 preamble rows) | Start Date | CTN; if 0 → Pick Qty ÷ 12 |
-| novo | Novo*.xlsx | 0 | Ship Date | `# of Cartons` native |
+| novo | Novo*.xlsx | 0 | Ship Date | native `# of Cartons`; if 0 → Pick Qty ÷ 12 **rounded UP (ceil)** |
 | americhine | Americhine*.xlsx | 0 | Start Date | native first `Cartons`; if 0 → Open Balance ÷ 30 (NOT the PRD's "All Open ÷ 9" — that was wrong, 37× too high). Ignore col BK (2nd Cartons). |
 | rdg | RDG*.xls (legacy!) | 3 (title block) | Start Date | All Open ÷ 9; preclean: drop rows where `Cust. No.` is a date |
 
@@ -70,9 +74,9 @@ TWO `Cartons` columns; pandas dedupes the 2nd to `Cartons.1` and we use the firs
 ## Reconciliation status (the trust contract)
 
 Run `python3 src/reconcile.py` after ANY transform change. Expected:
-catalyst / americhine / rdg = EXACT; mlg = −0.75 and novo = −4.0 (known,
-documented hand-edits in the human sample — see logs/study_log.md). Any other
-delta is a regression.
+catalyst / novo / americhine / rdg = EXACT; mlg = −0.75 (one documented human
+hand-edit in the sample — see logs/study_log.md). Any other delta is a regression.
+(Novo became EXACT on 2026-07-21 when its 0-carton rule started rounding up.)
 
 ## Required dashboard outputs (PRD section 10 + Annie's screenshot)
 
@@ -107,7 +111,12 @@ delta is a regression.
 - Pipeline only: `python3 src/pipeline.py`
 - One source: `python3 src/transform.py --source rdg`
 - Gmail fetch (manual): `python3 src/gmail_fetch.py` or double-click
-  `fetch_and_refresh.command`. Daily auto: `Install Daily Email Schedule.command`.
+  `fetch_and_refresh.command`. Daily auto: BUILT INTO THE DASHBOARD — a daemon
+  thread (`_start_daily_auto_refresh` in dashboard.py) runs the fetch once per
+  day after 11:15 while the dashboard is open; catches up on wake if the Mac
+  slept. Do NOT use launchd for this: macOS TCC blocks background agents from
+  reading Desktop folders (exit 78, empty logs) — that's why the old
+  `Install Daily Email Schedule.command`/plist were removed 2026-07-20.
 - Q&A reads `ANTHROPIC_API_KEY` from `config/secrets.env` (git-ignored, chmod 600);
   the launcher sources it. Key must be on an account WITH credits (a valid key on
   an empty account returns a billing 400 — qa.py surfaces a friendly message).
@@ -144,6 +153,14 @@ If Gmail is unreachable, the last good consolidated.parquet is kept (not wiped).
 - Cleanup is non-destructive: only removes prior auto-fetched files (its own
   naming), never the sample workbooks. reconcile.py is pinned to the exact
   SAMPLE_FILES, so live fetched files in the folder can't change its numbers.
+- Manual upload fallback (dashboard "📤 Upload a report manually" expander, for
+  Armando when Annie is away): per-source drag-drop uploaders. Each upload
+  REPLACES that source (override, never appended → no duplicates); un-uploaded
+  sources still come from Gmail/folder. `gmail_fetch.rebuild_with_uploads()`:
+  portal uploads are saved into the drop folder (persist, newest wins, nothing
+  deleted); email uploads are a one-off in-memory override (labeled "Manual
+  upload" in the freshness panel via `upload_sources`). Gmail is still pulled for
+  un-uploaded email sources.
 - Triggers: dashboard single "🔄 Refresh now" button (in-memory Gmail pull +
   portal folder + rebuild) AND a launchd job at 11:15 AM local
   (`Install Daily Email Schedule.command` installs

@@ -31,6 +31,20 @@ import transform as T  # noqa: E402
 import qa  # noqa: E402
 import gmail_fetch  # noqa: E402
 
+# When hosted on Streamlit Community Cloud there is no local secrets.env; the
+# credentials live in Streamlit's secret store. Copy them into the environment so
+# all the existing env-reading code (gmail_fetch, qa) works unchanged in the cloud.
+try:
+    for _k, _v in dict(st.secrets).items():
+        if isinstance(_v, str):
+            os.environ.setdefault(_k, _v)
+except Exception:  # no secrets.toml locally — fine
+    pass
+
+# Cloud mode = there's no local drop folder (so Gmail/portal refresh can't run
+# here); the app just displays the snapshot Annie published to the repo.
+IS_CLOUD = not os.path.isdir(T.default_folder())
+
 MONTH_ORDER = ["January", "February", "March", "April", "May", "June", "July",
                "August", "September", "October", "November", "December", "(blank)"]
 DOW_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
@@ -90,6 +104,56 @@ def get_data(_cache_key: str) -> pd.DataFrame:
     return pipeline.load_latest()
 
 
+AUTO_REFRESH_AT = (11, 15)  # daily, local time — after all 3 emails arrive
+
+
+def _auto_refresh_done_today(now) -> bool:
+    """True if a refresh already ran today at/after the scheduled time
+    (covers manual refreshes and other dashboard processes)."""
+    m = pipeline.last_run_meta()
+    if not m:
+        return False
+    try:
+        ts = pd.Timestamp(m["timestamp"])
+    except (ValueError, TypeError):
+        return False
+    sched = now.replace(hour=AUTO_REFRESH_AT[0], minute=AUTO_REFRESH_AT[1],
+                        second=0, microsecond=0)
+    return ts.date() == now.date() and ts >= sched
+
+
+@st.cache_resource
+def _start_daily_auto_refresh():
+    """Background thread: once per day, any time after 11:15 that the dashboard
+    is running, pull Gmail + rebuild. Lives inside the dashboard process because
+    macOS TCC blocks launchd background jobs from reading Desktop folders.
+    If the Mac was asleep at 11:15, this catches up on wake."""
+    import threading
+    import time as _time
+
+    def loop() -> None:
+        while True:
+            _time.sleep(300)  # check every 5 minutes
+            now = pd.Timestamp.now()
+            after = (now.hour, now.minute) >= AUTO_REFRESH_AT
+            if not after or _auto_refresh_done_today(now):
+                continue
+            try:
+                gmail_fetch.fetch_and_run()
+                get_data.clear()
+            except Exception:
+                _time.sleep(1800)  # errors are in logs/; back off 30 min, then retry
+
+    t = threading.Thread(target=loop, daemon=True, name="daily-auto-refresh")
+    t.start()
+    print(f"[auto-refresh] daily scheduler started (runs once/day after "
+          f"{AUTO_REFRESH_AT[0]:02d}:{AUTO_REFRESH_AT[1]:02d} while dashboard is open)")
+    return t
+
+
+_start_daily_auto_refresh()
+
+
 def _humanize_age(delta) -> str:
     secs = max(delta.total_seconds(), 0)
     if secs < 3600:
@@ -133,7 +197,7 @@ def volume_breaches(data: pd.DataFrame, limits: dict | None = None) -> tuple[pd.
 
 def source_status_table() -> pd.DataFrame | None:
     """Per-source 'last updated' provenance written by the pipeline."""
-    path = os.path.join(T.OUT_DIR, "source_status.json")
+    path = pipeline.status_path()
     if not os.path.exists(path):
         return None
     import json
@@ -173,7 +237,9 @@ with top[0]:
     else:
         st.caption("No data yet — click **Refresh now** to pull the reports.")
 with top[1]:
-    if st.button("🔄 Refresh now", type="primary", use_container_width=True,
+    if IS_CLOUD:
+        st.caption("🌐 Hosted view — data as last published by Annie.")
+    elif st.button("🔄 Refresh now", type="primary", use_container_width=True,
                  help="Pulls the latest Catalyst/MLG/Novo reports from Gmail (in "
                       "memory — nothing saved to your laptop) and reads "
                       "Americhine/RDG from your drop folder, then rebuilds."):
@@ -191,6 +257,41 @@ with top[1]:
                 st.error(f"{e}")
             except Exception as e:  # noqa: BLE001
                 st.error(f"Refresh failed: {e}")
+
+# --------------------------------------------------------------------------- #
+# Manual upload fallback — drop a file next to the source it belongs to.
+# Each upload REPLACES that source (no duplicates); un-uploaded sources still
+# come from Gmail / the drop folder. Handy when Annie is away.
+# Local only: the cloud host has no drop folder / Gmail-portal access.
+# --------------------------------------------------------------------------- #
+if not IS_CLOUD:
+  with st.expander("📤 Upload a report manually (e.g. Armando updating the latest files)"):
+    st.caption("Drop each file next to the source it belongs to, then click "
+               "**Rebuild**. An uploaded file **replaces** that source — it won't "
+               "double-count with what's pulled from Gmail or your folder. "
+               "Sources you don't upload keep updating normally.")
+    _srcs = T.load_config()["sources"]
+    _uploads: dict = {}
+    _ucols = st.columns(len(_srcs))
+    for _i, (_src, _cfg) in enumerate(_srcs.items()):
+        ext = "xls" if _cfg.get("file_format") == "xls" else "xlsx"
+        with _ucols[_i]:
+            _f = st.file_uploader(_cfg.get("display_name", _src), type=["xlsx", "xls"],
+                                  key=f"upload_{_src}",
+                                  help=f"The {_cfg.get('display_name', _src)} report (.{ext})")
+            if _f is not None:
+                _uploads[_src] = _f.getvalue()
+    if st.button("Rebuild with uploaded file(s)", type="primary", disabled=not _uploads):
+        with st.spinner("Rebuilding with the uploaded file(s)…"):
+            try:
+                res = gmail_fetch.rebuild_with_uploads(_uploads)
+                get_data.clear()
+                st.success(f"Rebuilt: used your upload(s) for "
+                           f"{', '.join(res['uploaded'])}; "
+                           f"{int(res['pipeline']['rows']):,} rows total.")
+                st.rerun()
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Rebuild failed: {e}")
 
 df = get_data(cache_key)
 if df.empty:
@@ -338,13 +439,28 @@ with tab_master:
         ).properties(height=320), use_container_width=True)
 
     st.subheader("Living pivot — cartons by Client × month")
-    pivot = pd.pivot_table(f, index="rnd_customer", columns="month",
-                           values="cartons", aggfunc="sum", margins=True,
-                           margins_name="Total")
-    ordered = [m for m in MONTH_ORDER if m in pivot.columns] + \
-              (["Total"] if "Total" in pivot.columns else [])
-    pivot = pivot[ordered]
+    # Columns are (month, year) so different years don't collapse into one
+    # column; ordered chronologically (2026 months, then 2027…), month on top,
+    # year underneath. No-date rows go to a "(blank)" column at the end.
+    lp = f.copy()
+    lp["_year"] = pd.to_datetime(lp["driving_date"], errors="coerce").dt.year
+    pivot = pd.pivot_table(lp, index="rnd_customer", columns=["month", "_year"],
+                           values="cartons", aggfunc="sum")
+
+    def _col_key(col):
+        month, year = col
+        yr = int(year) if pd.notna(year) else 9999          # blanks last
+        mi = MONTH_ORDER.index(month) if month in MONTH_ORDER else 98
+        return (yr, mi)
+
+    pivot = pivot[sorted(pivot.columns, key=_col_key)]
+    pivot[("Total", "")] = pivot.sum(axis=1)                # totals column
+    pivot.loc["Total"] = pivot.sum(axis=0)                  # totals row
     pivot.index.name = CLIENT_LABEL
+    # Render year as a clean label under the month ("" for blank/Total).
+    pivot.columns = pd.MultiIndex.from_tuples(
+        [(m, "" if (pd.isna(y) or y == "") else str(int(y))) for m, y in pivot.columns],
+        names=["Month", "Year"])
     st.dataframe(fmt_pivot(pivot), use_container_width=True)
 
     st.subheader("Calendar pivot — Client › end customer × month › date › day")

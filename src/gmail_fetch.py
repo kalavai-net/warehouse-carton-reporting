@@ -124,6 +124,48 @@ def fetch_bytes() -> tuple[dict, list, dict]:
     return out, missing, dates
 
 
+def rebuild_with_uploads(uploads: dict) -> dict:
+    """Manual fallback (e.g. Armando when Annie is away): rebuild using files
+    dropped in the dashboard. `uploads` = {source_key: file_bytes}.
+
+    Each uploaded file REPLACES that source (no duplicates). Sources not uploaded
+    still come from their normal place: email → Gmail, portal → drop folder.
+    Portal uploads are saved into the drop folder so they persist for next time;
+    email uploads are a one-off in-memory override (Gmail remains the source of
+    truth for those)."""
+    config = T.load_config()["sources"]
+    folder = T.default_folder()
+    today = dt.date.today().strftime("%Y%m%d")
+
+    email_uploads, portal_uploads = {}, {}
+    for src, data in uploads.items():
+        (email_uploads if config[src].get("email") else portal_uploads)[src] = data
+
+    # Persist portal uploads to the drop folder (newest file wins; nothing deleted).
+    for src, data in portal_uploads.items():
+        prefix, _, suffix = config[src]["file_glob"].partition("*")
+        out = os.path.join(folder, f"{prefix} manual-{today}{suffix}")
+        with open(out, "wb") as fh:
+            fh.write(data)
+        log.info("[%s] saved manual upload -> %s", src, os.path.basename(out))
+
+    # Email sources: pull Gmail (best effort), then let uploads override.
+    buffers, dates = {}, {}
+    try:
+        eb, _missing, ed = fetch_bytes()
+        buffers.update(eb)
+        dates.update(ed)
+    except GmailFetchError as e:
+        log.warning("Gmail unavailable during manual rebuild: %s", e)
+    buffers.update(email_uploads)  # email uploads override the Gmail pull
+
+    meta = pipeline.run_pipeline(folder=folder, buffers=buffers, source_dates=dates,
+                                 upload_sources=set(email_uploads))
+    log.info("manual rebuild done: uploaded %s, %d rows",
+             list(uploads), int(meta["rows"]))
+    return {"uploaded": list(uploads), "pipeline": meta}
+
+
 def fetch_and_run(folder: str | None = None) -> dict:
     """Fetch the email reports in memory and rebuild the consolidated dataset
     (email sources from Gmail, portal sources read from the drop folder).

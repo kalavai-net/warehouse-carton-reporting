@@ -86,8 +86,14 @@ sources:
     end_customer_col: "Customer Name"
     driving_date_col: "Ship Date"
     carton:
-      method: column          # native, no divisor
+      # Rule (Annie 2026-07-21): native `# of Cartons`; if 0 -> Pick Qty / 12
+      # ROUNDED UP (ceil). Reconciles Novo EXACTLY to the manual pivot (62,319);
+      # the 4 zero-carton sample rows have Pick Qty 6/6/6/10 -> ceil = 1 each.
+      method: column_with_fallback
       carton_col: "# of Cartons"
+      fallback_col: "Pick Qty"
+      fallback_divisor: 12
+      fallback_round: ceil
     cancel_date_col: "Cancel Date"
     preclean: []
     email:

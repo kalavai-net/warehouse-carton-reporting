@@ -1,0 +1,27 @@
+{
+  "catalyst": {
+    "display": "Catalyst",
+    "origin": "Gmail",
+    "last_updated": "2026-08-11T06:02:06"
+  },
+  "mlg": {
+    "display": "MLG",
+    "origin": "Gmail",
+    "last_updated": "2026-08-11T10:31:30"
+  },
+  "novo": {
+    "display": "Novo",
+    "origin": "Gmail",
+    "last_updated": "2026-08-11T01:03:31"
+  },
+  "americhine": {
+    "display": "Americhine / Indochine / RND",
+    "origin": "Folder (portal export)",
+    "last_updated": "2026-08-11T14:45:37"
+  },
+  "rdg": {
+    "display": "RDG",
+    "origin": "Folder (portal export)",
+    "last_updated": "2026-07-16T22:01:45"
+  }
+}
