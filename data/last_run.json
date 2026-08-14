@@ -1,11 +1,8 @@
 {
-  "run_tag": "20260811_144542",
-  "timestamp": "2026-08-11T14:45:48",
-  "folder": "/Users/anniewang/Desktop/Warehouse Daily Reports",
-  "rows": 11732,
+  "run_tag": "20260814_142441",
+  "timestamp": "2026-08-14T14:24:41",
+  "rows": 12348,
   "sources": 5,
   "rnd_customers": 7,
-  "total_cartons": 2212167.0333,
-  "flagged_rows": 138,
-  "snapshot": "/Users/anniewang/Desktop/warehouse raw documents/output/history/snapshot_20260811_144542.parquet"
+  "total_cartons": 2224064.7833
 }

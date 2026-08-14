@@ -1,0 +1,42 @@
+name: Daily data refresh
+
+# Runs in GitHub's cloud (not Annie's Mac). Pulls the 3 email reports from Gmail,
+# rebuilds the data snapshot, and commits it — Streamlit Cloud then redeploys.
+on:
+  schedule:
+    - cron: "0 19 * * *"     # 19:00 UTC ≈ 11am–12pm Pacific, after the reports arrive
+  workflow_dispatch: {}       # also lets you run it on demand from the Actions tab
+
+permissions:
+  contents: write             # allow the job to push the updated snapshot
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pull email reports + rebuild snapshot
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python3 src/cloud_refresh.py
+
+      - name: Commit updated snapshot
+        run: |
+          git config user.name "kalavai-refresh-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No data change today."
+          else
+            git commit -m "Daily data refresh [skip ci]"
+            git push
+          fi

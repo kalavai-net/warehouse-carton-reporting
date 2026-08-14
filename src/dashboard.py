@@ -62,7 +62,7 @@ DISPLAY_RENAME = {
     "review_flag": "Review flag",
 }
 
-st.set_page_config(page_title="Warehouse Carton Reporting", layout="wide")
+st.set_page_config(page_title="Warehouse — Projected Carton Volume", layout="wide")
 
 
 def _check_share_password() -> None:
@@ -223,7 +223,7 @@ def source_status_table() -> pd.DataFrame | None:
 # --------------------------------------------------------------------------- #
 # header + refresh
 # --------------------------------------------------------------------------- #
-st.title("📦 Warehouse — Carton Volume")
+st.title("📦 Warehouse — Projected Carton Volume")
 
 meta = pipeline.last_run_meta()
 cache_key = meta["run_tag"] if meta else "none"

@@ -56,23 +56,36 @@ Send Armando the link. It stays live regardless of your Mac.
 
 ---
 
-## Updating the data Armando sees
+## Automatic daily refresh (no Mac needed)
 
-The hosted view shows the last snapshot you published. To update it:
+A GitHub Action (`.github/workflows/daily-refresh.yml`) runs every day at ~11am PT,
+**in GitHub's cloud**. It pulls the 3 email reports (Catalyst/MLG/Novo) from Gmail,
+rebuilds the snapshot, commits it, and Streamlit Cloud redeploys — so Armando's view
+updates on its own, whether your Mac is on or off.
 
+**One-time setup to turn it on:**
+1. Repo → **Settings → Secrets and variables → Actions → New repository secret**, add:
+   - `GMAIL_ADDRESS` = `annie@kalavai.net`
+   - `GMAIL_APP_PASSWORD` = your 16-char Gmail app password
+2. Repo → **Settings → Actions → General → Workflow permissions** → select
+   **"Read and write permissions"** → Save. (Lets the daily job push the snapshot.)
+3. Test it: repo → **Actions** tab → **"Daily data refresh"** → **Run workflow**.
+   After it finishes, the hosted dashboard updates within a minute.
+
+> **Portal sources:** Americhine + RDG can't be pulled from the cloud yet (no VSR
+> API), so the daily job keeps their last published values. Refresh those from your
+> Mac when you have new exports (below). Once the Americhine VSR API is wired up,
+> the daily job can pull it too.
+
+## Updating the portal sources (Americhine / RDG) from your Mac
+
+When you have fresh Americhine/RDG exports:
 ```bash
-# 1. Refresh locally (pull Gmail + your Americhine/RDG files)
-python3 src/gmail_fetch.py           # or the dashboard "Refresh now" button
-
-# 2. Publish the snapshot to the cloud
-python3 src/publish_snapshot.py --push
+python3 src/gmail_fetch.py            # refresh locally (or dashboard "Refresh now")
+python3 src/publish_snapshot.py --push   # or double-click "Publish to Cloud.command"
 ```
-(or double-click **"Publish to Cloud.command"**.) The hosted dashboard redeploys
-automatically within a minute of the push.
-
-> `--push` needs git auth set up (GitHub Desktop signed in as you, or a token). If
-> the push can't run, the snapshot is still committed locally — push it from
-> GitHub Desktop.
+> `--push` needs git auth (GitHub Desktop signed in as you, or a token). If the push
+> can't run, the snapshot is still committed locally — push it from GitHub Desktop.
 
 ---
 
