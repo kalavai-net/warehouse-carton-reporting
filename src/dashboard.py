@@ -105,6 +105,39 @@ def get_data(_cache_key: str) -> pd.DataFrame:
     return pipeline.load_latest()
 
 
+DATA_REPO = "kalavai-net/warehouse-carton-reporting"
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def sync_snapshot_from_repo(_bucket: str) -> str:
+    """Cloud only: pull the latest committed snapshot from the (private) repo at
+    runtime, so the daily GitHub Action's updates appear without a Streamlit
+    redeploy. Refreshes at most every 10 minutes. Needs a read-only
+    GITHUB_DATA_TOKEN in the app's Streamlit secrets."""
+    import urllib.request
+    token = os.environ.get("GITHUB_DATA_TOKEN") or os.environ.get("GH_TOKEN")
+    repo = os.environ.get("DATA_REPO", DATA_REPO)
+    if not token:
+        return "no-token"
+    synced = 0
+    for fname in ("consolidated.parquet", "source_status.json", "last_run.json"):
+        url = f"https://api.github.com/repos/{repo}/contents/data/{fname}?ref=main"
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.raw",
+            "User-Agent": "warehouse-dashboard"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                content = resp.read()
+            os.makedirs(pipeline.SNAPSHOT_DIR, exist_ok=True)
+            with open(os.path.join(pipeline.SNAPSHOT_DIR, fname), "wb") as fh:
+                fh.write(content)
+            synced += 1
+        except Exception:  # keep the deploy-time snapshot on any failure
+            pass
+    return f"synced:{synced}"
+
+
 AUTO_REFRESH_AT = (11, 15)  # daily, local time — after all 3 emails arrive
 
 
@@ -225,6 +258,12 @@ def source_status_table() -> pd.DataFrame | None:
 # header + refresh
 # --------------------------------------------------------------------------- #
 st.title("📦 Warehouse — Projected Carton Volume")
+
+# In the cloud, pull the newest committed snapshot from the repo so the daily
+# refresh shows up without a redeploy (cached ~10 min).
+if IS_CLOUD:
+    sync_snapshot_from_repo(pd.Timestamp.utcnow().strftime("%Y-%m-%d-%H") +
+                            f"-{pd.Timestamp.utcnow().minute // 10}")
 
 meta = pipeline.last_run_meta()
 cache_key = meta["run_tag"] if meta else "none"

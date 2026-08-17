@@ -35,13 +35,22 @@ see "Updating the data" below.)
 ### 5. Add secrets (Advanced settings → Secrets)
 Paste this (TOML format), filling in your values:
 ```toml
-ANTHROPIC_API_KEY = "sk-ant-..."      # only needed for the Ask (Q&A) tab
-# Optional (only if you later enable cloud Gmail pulls):
-# GMAIL_ADDRESS = "annie@kalavai.net"
-# GMAIL_APP_PASSWORD = "xxxxxxxxxxxxxxxx"
-# Optional password gate (or use Streamlit's viewer invites instead):
-# SHARE_PASSWORD = "choose-one"
+# Lets the hosted app read the latest data from the PRIVATE repo at runtime, so the
+# daily refresh shows up without a redeploy. Create a fine-grained token (below).
+GITHUB_DATA_TOKEN = "github_pat_..."
+
+ANTHROPIC_API_KEY = "sk-ant-..."         # for the Ask (Q&A) tab
+GMAIL_ADDRESS = "annie@kalavai.net"       # for the in-app "Refresh now" button
+GMAIL_APP_PASSWORD = "xxxxxxxxxxxxxxxx"    # 16 chars, no spaces
+# SHARE_PASSWORD = "choose-one"           # optional password gate
 ```
+
+**Creating `GITHUB_DATA_TOKEN` (read-only, safe):**
+github.com/settings/tokens → **Fine-grained tokens** → **Generate new token** →
+Resource owner: **kalavai-net** → Repository access: **Only select repositories** →
+`warehouse-carton-reporting` → Permissions → **Repository permissions → Contents →
+Read-only** → Generate. Paste the `github_pat_…` value above. (It can only read this
+one repo's files — nothing else.)
 
 ### 6. Deploy
 Click **Deploy**. First build takes a couple of minutes. You'll get a permanent URL
