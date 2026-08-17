@@ -1,17 +1,18 @@
 """
-Daily cloud refresh — run by the GitHub Action (.github/workflows/daily-refresh.yml),
-NOT on Annie's Mac.
+Cloud refresh — used two ways:
+  * the daily GitHub Action (.github/workflows/daily-refresh.yml) calls main()
+  * the hosted dashboard's "Refresh now" / upload buttons call build()
 
-Pulls the 3 email reports (Catalyst/MLG/Novo) live from Gmail, merges them with the
-last Americhine/RDG portal snapshot already in `data/`, and rewrites the data/
-snapshot the hosted dashboard reads. Then the Action commits + pushes it, and
-Streamlit Cloud redeploys automatically.
+It pulls the 3 email reports (Catalyst/MLG/Novo) live from Gmail, keeps the last
+Americhine/RDG portal rows from the committed snapshot (or uses uploaded files),
+and rewrites the data/ snapshot the hosted dashboard reads. No local drop folder
+needed — everything is in memory or the snapshot.
 
-Email sources refresh every day on their own. Portal sources (Americhine/RDG) can't
-be pulled from the cloud yet (no VSR API), so they stay at whatever Annie last
-published from her Mac — until the VSR API lands.
+Portal sources (Americhine/RDG) can't be pulled from the cloud yet (no VSR API),
+so they stay at the last published/uploaded values.
 
-Needs GMAIL_ADDRESS + GMAIL_APP_PASSWORD in the environment (GitHub Actions secrets).
+Needs GMAIL_ADDRESS + GMAIL_APP_PASSWORD in the environment (GitHub Actions secrets,
+or the Streamlit app's secrets).
 """
 from __future__ import annotations
 
@@ -27,13 +28,14 @@ import transform as T  # noqa: E402
 import pipeline  # noqa: E402
 import gmail_fetch  # noqa: E402
 
-PORTAL = {"americhine", "rdg"}
 
-
-def main() -> None:
+def build(uploads: dict | None = None) -> dict:
+    """Rebuild the data/ snapshot from Gmail (email) + snapshot/uploads (portal).
+    `uploads` = optional {source_key: file_bytes} that override any source.
+    Returns the run meta."""
+    uploads = uploads or {}
     config = T.load_config()["sources"]
 
-    # Last snapshot — source of the portal rows (and a fallback for email).
     if os.path.exists(pipeline.SNAPSHOT_PARQUET):
         snap = pd.read_parquet(pipeline.SNAPSHOT_PARQUET)
     else:
@@ -43,28 +45,31 @@ def main() -> None:
         with open(pipeline.SNAPSHOT_STATUS) as fh:
             old_status = json.load(fh)
 
-    # Pull the email reports live and transform them in memory.
-    buffers, missing, dates = gmail_fetch.fetch_bytes()
-    frames, status = [], {}
-    for src, data in buffers.items():
-        cfg = config[src]
-        frames.append(T.transform_source(T.read_raw(data, cfg, label=src), cfg, src))
-        ts = dates.get(src) or dt.datetime.now()
-        status[src] = {"display": cfg.get("display_name", src), "origin": "Gmail (auto)",
-                       "last_updated": ts.replace(microsecond=0).isoformat()}
+    # Pull the email reports live (best effort — uploads can stand in if it fails).
+    buffers, missing, dates = {}, [], {}
+    try:
+        buffers, missing, dates = gmail_fetch.fetch_bytes()
+    except gmail_fetch.GmailFetchError:
+        pass
 
-    # Email sources we couldn't fetch today: keep yesterday's rows + status.
+    frames, status = [], {}
     for src, cfg in config.items():
-        if cfg.get("email") and src not in buffers:
+        disp = cfg.get("display_name", src)
+        data = uploads.get(src) or buffers.get(src)
+        if data is not None:
+            frames.append(T.transform_source(T.read_raw(data, cfg, label=src), cfg, src))
+            if src in uploads:
+                status[src] = {"display": disp, "origin": "Manual upload",
+                               "last_updated": dt.datetime.now().replace(microsecond=0).isoformat()}
+            else:
+                ts = dates.get(src) or dt.datetime.now()
+                status[src] = {"display": disp, "origin": "Gmail (auto)",
+                               "last_updated": ts.replace(microsecond=0).isoformat()}
+        else:
+            # Not fetched/uploaded — keep this source's rows from the last snapshot.
             frames.append(snap[snap["source"] == src])
             if src in old_status:
                 status[src] = old_status[src]
-
-    # Portal rows + status come from the last snapshot unchanged.
-    frames.append(snap[snap["source"].isin(PORTAL)])
-    for src in PORTAL:
-        if src in old_status:
-            status[src] = old_status[src]
 
     combined = pd.concat([f for f in frames if len(f)], ignore_index=True)
 
@@ -79,12 +84,17 @@ def main() -> None:
         "sources": int(combined["source"].nunique()) if len(combined) else 0,
         "rnd_customers": int(combined["rnd_customer"].nunique()) if len(combined) else 0,
         "total_cartons": round(float(pd.to_numeric(combined["cartons"], errors="coerce").sum()), 4),
+        "fetched": list(buffers), "uploaded": list(uploads), "missing": missing,
     }
     with open(pipeline.SNAPSHOT_META, "w") as fh:
         json.dump(meta, fh, indent=2, default=str)
+    return meta
 
-    print(f"cloud refresh: {len(combined)} rows | email pulled: {list(buffers)} | "
-          f"missing: {missing} | total cartons: {meta['total_cartons']:,.0f}")
+
+def main() -> None:
+    meta = build()
+    print(f"cloud refresh: {meta['rows']} rows | email pulled: {meta['fetched']} | "
+          f"missing: {meta['missing']} | total cartons: {meta['total_cartons']:,.0f}")
 
 
 if __name__ == "__main__":

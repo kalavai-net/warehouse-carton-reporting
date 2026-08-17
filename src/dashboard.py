@@ -30,6 +30,7 @@ import pipeline  # noqa: E402
 import transform as T  # noqa: E402
 import qa  # noqa: E402
 import gmail_fetch  # noqa: E402
+import cloud_refresh  # noqa: E402
 
 # When hosted on Streamlit Community Cloud there is no local secrets.env; the
 # credentials live in Streamlit's secret store. Copy them into the environment so
@@ -237,21 +238,29 @@ with top[0]:
     else:
         st.caption("No data yet — click **Refresh now** to pull the reports.")
 with top[1]:
-    if IS_CLOUD:
-        st.caption("🌐 Hosted view — data as last published by Annie.")
-    elif st.button("🔄 Refresh now", type="primary", use_container_width=True,
-                 help="Pulls the latest Catalyst/MLG/Novo reports from Gmail (in "
-                      "memory — nothing saved to your laptop) and reads "
-                      "Americhine/RDG from your drop folder, then rebuilds."):
+    _help = ("Pulls the latest Catalyst/MLG/Novo reports from Gmail and rebuilds. "
+             + ("Americhine/RDG stay at their last values (hosted view). "
+                if IS_CLOUD else "Reads Americhine/RDG from your drop folder. "))
+    if st.button("🔄 Refresh now", type="primary", use_container_width=True, help=_help):
         with st.spinner("Pulling the latest reports from Gmail and rebuilding…"):
             try:
-                res = gmail_fetch.fetch_and_run()
-                get_data.clear()
-                msg = (f"Refreshed: pulled {', '.join(res['fetched'])} from Gmail; "
-                       f"{int(res['pipeline']['rows']):,} rows total.")
-                if res["missing"]:
-                    msg += f" (Not in Gmail today: {', '.join(res['missing'])}.)"
-                st.success(msg)
+                if IS_CLOUD:
+                    meta = cloud_refresh.build()
+                    get_data.clear()
+                    msg = (f"Refreshed: pulled {', '.join(meta['fetched']) or 'nothing'} "
+                           f"from Gmail; {int(meta['rows']):,} rows.")
+                    if not meta["fetched"]:
+                        msg += (" ⚠️ No email pulled — add GMAIL_ADDRESS and "
+                                "GMAIL_APP_PASSWORD to this app's Streamlit secrets.")
+                    st.success(msg)
+                else:
+                    res = gmail_fetch.fetch_and_run()
+                    get_data.clear()
+                    msg = (f"Refreshed: pulled {', '.join(res['fetched'])} from Gmail; "
+                           f"{int(res['pipeline']['rows']):,} rows total.")
+                    if res["missing"]:
+                        msg += f" (Not in Gmail today: {', '.join(res['missing'])}.)"
+                    st.success(msg)
                 st.rerun()
             except gmail_fetch.GmailFetchError as e:
                 st.error(f"{e}")
@@ -262,9 +271,10 @@ with top[1]:
 # Manual upload fallback — drop a file next to the source it belongs to.
 # Each upload REPLACES that source (no duplicates); un-uploaded sources still
 # come from Gmail / the drop folder. Handy when Annie is away.
-# Local only: the cloud host has no drop folder / Gmail-portal access.
+# In the cloud, uploads update the current view (session); the daily job + your
+# publishes are what persist across restarts.
 # --------------------------------------------------------------------------- #
-if not IS_CLOUD:
+if True:
   with st.expander("📤 Upload a report manually (e.g. Armando updating the latest files)"):
     st.caption("Drop each file next to the source it belongs to, then click "
                "**Rebuild**. An uploaded file **replaces** that source — it won't "
@@ -284,11 +294,18 @@ if not IS_CLOUD:
     if st.button("Rebuild with uploaded file(s)", type="primary", disabled=not _uploads):
         with st.spinner("Rebuilding with the uploaded file(s)…"):
             try:
-                res = gmail_fetch.rebuild_with_uploads(_uploads)
-                get_data.clear()
-                st.success(f"Rebuilt: used your upload(s) for "
-                           f"{', '.join(res['uploaded'])}; "
-                           f"{int(res['pipeline']['rows']):,} rows total.")
+                if IS_CLOUD:
+                    meta = cloud_refresh.build(uploads=_uploads)
+                    get_data.clear()
+                    st.success(f"Rebuilt with your upload(s) for "
+                               f"{', '.join(_uploads)}; {int(meta['rows']):,} rows. "
+                               "(Hosted view — this updates the dashboard now.)")
+                else:
+                    res = gmail_fetch.rebuild_with_uploads(_uploads)
+                    get_data.clear()
+                    st.success(f"Rebuilt: used your upload(s) for "
+                               f"{', '.join(res['uploaded'])}; "
+                               f"{int(res['pipeline']['rows']):,} rows total.")
                 st.rerun()
             except Exception as e:  # noqa: BLE001
                 st.error(f"Rebuild failed: {e}")

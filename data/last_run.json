@@ -1,8 +1,15 @@
 {
-  "run_tag": "20260816_192120",
-  "timestamp": "2026-08-16T19:21:20",
-  "rows": 12366,
+  "run_tag": "20260817_113942",
+  "timestamp": "2026-08-17T11:39:42",
+  "rows": 11002,
   "sources": 5,
   "rnd_customers": 7,
-  "total_cartons": 2224999.7833
+  "total_cartons": 2219115.7833,
+  "fetched": [
+    "catalyst",
+    "mlg",
+    "novo"
+  ],
+  "uploaded": [],
+  "missing": []
 }
