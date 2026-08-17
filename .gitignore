@@ -21,3 +21,6 @@ __pycache__/
 
 # Tunnel binary + share password (local-only)
 .tools/
+
+# Data snapshot now lives in the PRIVATE warehouse-data repo, not here.
+data/

@@ -43,16 +43,29 @@ def publish(push: bool = False) -> None:
           f"({int(meta['rows']) if meta else '?'} rows).")
 
     if push:
+        # Publish to the PRIVATE data repo the hosted app reads.
+        import tempfile
+        data_repo = os.environ.get("DATA_REPO", "kalavai-net/warehouse-data")
+        tok = os.environ.get("DATA_REPO_TOKEN") or os.environ.get("GH_TOKEN")
+        url = (f"https://x-access-token:{tok}@github.com/{data_repo}.git" if tok
+               else f"https://github.com/{data_repo}.git")
         try:
-            subprocess.run(["git", "add", "data/"], cwd=T.ROOT, check=True)
-            subprocess.run(["git", "commit", "-m", "Publish data snapshot for cloud dashboard"],
-                           cwd=T.ROOT, check=True)
-            subprocess.run(["git", "push"], cwd=T.ROOT, check=True)
-            print("Pushed to GitHub — the hosted dashboard will update shortly.")
+            with tempfile.TemporaryDirectory() as tmp:
+                subprocess.run(["git", "clone", "--depth", "1", url, tmp], check=True)
+                dst = os.path.join(tmp, "data")
+                os.makedirs(dst, exist_ok=True)
+                for fn in ("consolidated.parquet", "source_status.json", "last_run.json"):
+                    shutil.copy(os.path.join(pipeline.SNAPSHOT_DIR, fn), os.path.join(dst, fn))
+                subprocess.run(["git", "-C", tmp, "add", "-A"], check=True)
+                subprocess.run(["git", "-C", tmp, "-c", "user.email=publish@kalavai.net",
+                                "-c", "user.name=publish", "commit", "-m",
+                                "Publish data snapshot"], check=True)
+                subprocess.run(["git", "-C", tmp, "push"], check=True)
+            print(f"Published to {data_repo} — the hosted dashboard updates within ~10 min.")
         except subprocess.CalledProcessError:
-            print("\nCouldn't push automatically (git auth not set up). The snapshot "
-                  "is saved + committed locally — push it via GitHub Desktop to update "
-                  "the hosted dashboard.")
+            print(f"\nCouldn't push to {data_repo} (auth needed). Set DATA_REPO_TOKEN in "
+                  "config/secrets.env, or use GitHub Desktop on the warehouse-data repo. "
+                  "The snapshot is saved locally in data/.")
 
 
 if __name__ == "__main__":

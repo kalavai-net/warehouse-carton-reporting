@@ -44,7 +44,7 @@ except Exception:  # no secrets.toml locally — fine
 
 # Cloud mode = there's no local drop folder (so Gmail/portal refresh can't run
 # here); the app just displays the snapshot Annie published to the repo.
-IS_CLOUD = not os.path.isdir(T.default_folder())
+IS_CLOUD = os.environ.get("FORCE_CLOUD") == "1" or not os.path.isdir(T.default_folder())
 
 MONTH_ORDER = ["January", "February", "March", "April", "May", "June", "July",
                "August", "September", "October", "November", "December", "(blank)"]
@@ -105,7 +105,7 @@ def get_data(_cache_key: str) -> pd.DataFrame:
     return pipeline.load_latest()
 
 
-DATA_REPO = "kalavai-net/warehouse-carton-reporting"
+DATA_REPO = "kalavai-net/warehouse-data"   # PRIVATE data repo (code repo is public)
 
 
 @st.cache_data(ttl=600, show_spinner=False)

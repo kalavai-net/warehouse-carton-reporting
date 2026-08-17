@@ -1,20 +1,25 @@
 name: Daily data refresh
 
 # Runs in GitHub's cloud (not Annie's Mac). Pulls the 3 email reports from Gmail,
-# rebuilds the data snapshot, and commits it — Streamlit Cloud then redeploys.
+# rebuilds the data snapshot, and pushes it to the PRIVATE data repo
+# (kalavai-net/warehouse-data). The hosted Streamlit app reads that at runtime.
 on:
   schedule:
     - cron: "0 19 * * *"     # 19:00 UTC ≈ 11am–12pm Pacific, after the reports arrive
   workflow_dispatch: {}       # also lets you run it on demand from the Actions tab
 
-permissions:
-  contents: write             # allow the job to push the updated snapshot
-
 jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4          # this (code) repo
+
+      - name: Get the previous snapshot from the private data repo
+        run: |
+          git clone --depth 1 \
+            https://x-access-token:${{ secrets.DATA_REPO_TOKEN }}@github.com/kalavai-net/warehouse-data.git _data
+          mkdir -p data
+          cp _data/data/*.parquet _data/data/*.json data/ 2>/dev/null || true
 
       - uses: actions/setup-python@v5
         with:
@@ -29,14 +34,16 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python3 src/cloud_refresh.py
 
-      - name: Commit updated snapshot
+      - name: Push updated snapshot to the private data repo
         run: |
+          cp data/consolidated.parquet data/source_status.json data/last_run.json _data/data/
+          cd _data
           git config user.name "kalavai-refresh-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/
+          git add -A
           if git diff --cached --quiet; then
             echo "No data change today."
           else
-            git commit -m "Daily data refresh [skip ci]"
+            git commit -m "Daily data refresh"
             git push
           fi
