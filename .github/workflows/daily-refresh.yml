@@ -38,6 +38,7 @@ jobs:
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          VSR_API_KEY: ${{ secrets.VSR_API_KEY }}
         run: python3 src/cloud_refresh.py
 
       - name: Push updated snapshot to the private data repo

@@ -56,6 +56,20 @@ def build(uploads: dict | None = None) -> dict:
     for src, cfg in config.items():
         disp = cfg.get("display_name", src)
         data = uploads.get(src) or buffers.get(src)
+        # API-fed source (Americhine via VSR) — pull directly unless an upload
+        # overrides it; keep the last snapshot rows on any API error.
+        if cfg.get("api") and data is None:
+            try:
+                import vsr_fetch
+                frame, api_status = vsr_fetch.fetch_americhine()
+                frames.append(frame)
+                status[src] = api_status
+                continue
+            except Exception:  # noqa: BLE001
+                frames.append(snap[snap["source"] == src])
+                if src in old_status:
+                    status[src] = old_status[src]
+                continue
         if data is not None:
             frames.append(T.transform_source(T.read_raw(data, cfg, label=src), cfg, src))
             if src in uploads:

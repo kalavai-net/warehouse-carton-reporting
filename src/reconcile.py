@@ -16,11 +16,12 @@ import transform as T
 # Grand totals read directly from each sample workbook's manual pivot tab.
 # (Sum of cartons across all months = the number Armando's report shows today.)
 PIVOT_TARGETS = {
-    "catalyst":   4545.0833,     # Total By Month Pivot grand total
-    "mlg":        1987.1667,     # Pivot By Month From Edited grand total
-    "novo":       62319.0,       # Total By Month Pivot
-    "americhine": 1172010.1333,  # Total By Month Pivot grand total
-    "rdg":        1105092.8889,  # Total By Month Pivot
+    "catalyst":     4545.0833,      # Total By Month Pivot grand total
+    "mlg":          1987.1667,      # Pivot By Month From Edited grand total
+    "novo":         62319.0,        # Total By Month Pivot
+    "americhine":   973283.2,       # pivot: AMERICHINE LLC row (now API-fed in prod)
+    "indochine_rnd": 198726.9333,   # pivot: Indochine 90,065.1 + RND 108,661.833
+    "rdg":          1105092.8889,   # Total By Month Pivot
 }
 
 # Exact sample workbook names. Reconcile is pinned to THESE files (not the
@@ -30,8 +31,9 @@ SAMPLE_FILES = {
     "catalyst":   "Catalyst- Order Tracking - Sample.xlsx",
     "mlg":        "MLG- Daily Open Order Report- Sample.xlsx",
     "novo":       "Novo Open Pick Report (1).xlsx",
-    "americhine": "Americhine-Indochine-RND-Open Sales Report.xlsx",
-    "rdg":        "RDG-Open Order Report.xls",
+    "americhine":    "Americhine-Indochine-RND-Open Sales Report.xlsx",
+    "indochine_rnd": "Americhine-Indochine-RND-Open Sales Report.xlsx",
+    "rdg":           "RDG-Open Order Report.xls",
 }
 
 # Known, understood differences caused by manual hand-edits in the SAMPLE

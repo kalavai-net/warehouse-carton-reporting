@@ -216,6 +216,16 @@ def transform_source(df: pd.DataFrame, cfg: dict, source: str,
                          source, dropped, col)
             df = df[~mask]
 
+    # ---- company filter (e.g. take only Indochine+RND from the combined VSR
+    # file, so Americhine — served by the API — isn't double-counted) --------- #
+    company_in = cfg.get("company_in")
+    if company_in and cfg.get("rnd_customer_col") in df.columns:
+        col = cfg["rnd_customer_col"]
+        before = len(df)
+        df = df[df[col].astype(str).str.strip().isin(company_in)]
+        log.info("  [%s] company filter %s -> kept %d of %d rows",
+                 source, company_in, len(df), before)
+
     # ---- driving date + month/dow (always computed) --------------------- #
     drive = df[cfg["driving_date_col"]].apply(to_date)
 
@@ -326,6 +336,19 @@ def run(folder: str, only: str | None = None, buffers: dict | None = None,
             continue
         disp = cfg.get("display_name", source)
         buf = (buffers or {}).get(source)
+        # API-fed source (e.g. Americhine via VSR) — fetch directly, unless a
+        # manual upload overrides it. Falls back to the file on any API error.
+        if cfg.get("api") and buf is None:
+            try:
+                import vsr_fetch
+                frame, api_status = vsr_fetch.fetch_americhine()
+                frames.append(frame)
+                status[source] = api_status
+                log.info("  [%s] VSR API -> %d rows, %.0f cartons",
+                         source, len(frame), frame["cartons"].sum())
+                continue
+            except Exception as e:  # noqa: BLE001
+                log.warning("  [%s] VSR API failed (%s); falling back to file", source, e)
         if buf is not None:
             is_upload = source in upload_sources
             log.info("processing source: %s (%s, in-memory)", source,

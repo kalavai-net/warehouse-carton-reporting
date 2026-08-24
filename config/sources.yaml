@@ -100,27 +100,52 @@ sources:
       subject_contains: "Novo Open Pick Report"
       out_name: "Novo Open Pick Report {date}.xlsx"
 
+  # The VSR file/API covers 3 companies. As of 2026-08 Americhine has an API
+  # (auto), while Indochine + RND still come from the uploaded combined file. Both
+  # blocks read the SAME combined file but filter to their own companies via
+  # `company_in`, so Americhine is never double-counted.
   americhine:
-    display_name: Americhine / Indochine / RND
+    display_name: Americhine (API)
+    api: vsr                    # PRIMARY source: VSR API (src/vsr_fetch.py); the
+                                # API returns cartons already computed. Falls back
+                                # to the combined file (filtered) if the API fails.
+    company_in: ["AMERICHINE LLC"]
     file_glob: "Americhine*.xlsx"
     system: VSR ERP
-    delivery: portal          # manual pull, then export -> folder/API
+    delivery: api
     file_format: xlsx
     sheet: Original
     header_row: 0
-    rnd_customer_col: "Company"   # DYNAMIC: splits into Americhine/Indochine/RND
+    rnd_customer_col: "Company"
+    end_customer_col: "Cust. Name"
+    driving_date_col: "Start Date"
+    carton:                     # used only for the file FALLBACK, not the API
+      method: column_with_fallback
+      carton_col: "Cartons"
+      fallback_col: "Open Balance"
+      fallback_divisor: 30
+      qty_col: "All Open"
+    cancel_date_col: "Cancel Date"
+    preclean: []
+
+  indochine_rnd:
+    display_name: Indochine / RND (upload)
+    company_in: ["Indochine Intl (US) Co LLC", "RND International, LLC"]
+    file_glob: "Americhine*.xlsx"   # the same combined VSR export
+    system: VSR ERP
+    delivery: portal            # manual upload of the combined file
+    file_format: xlsx
+    sheet: Original
+    header_row: 0
+    rnd_customer_col: "Company"
     end_customer_col: "Cust. Name"
     driving_date_col: "Start Date"
     carton:
-      # Rule confirmed by Annie 2026-06-11 (reconciles EXACTLY to pivot
-      # 1,172,010.1333): keep native first "Cartons"; if 0 -> Open Balance / 30.
-      # (PRD's "All Open / 9" was wrong -- gave 37x.) Column BK = the 2nd
-      # "Cartons" column ("Cartons.1") is ignored: we use the first occurrence.
       method: column_with_fallback
-      carton_col: "Cartons"       # first occurrence = line carton count
+      carton_col: "Cartons"
       fallback_col: "Open Balance"
       fallback_divisor: 30
-      qty_col: "All Open"         # retained as units for reference
+      qty_col: "All Open"
     cancel_date_col: "Cancel Date"
     preclean: []
 

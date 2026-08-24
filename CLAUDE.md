@@ -62,8 +62,15 @@ units, cancel_date, review_flag`
 | catalyst | Catalyst*.xlsx | 0 | PO Due Date | Original Quantity ÷ 12 (ignore native Carton Count) |
 | mlg | MLG*.xlsx | 5 (4 preamble rows) | Start Date | CTN; if 0 → Pick Qty ÷ 12 |
 | novo | Novo*.xlsx | 0 | Ship Date | native `# of Cartons`; if 0 → Pick Qty ÷ 12 **rounded UP (ceil)** |
-| americhine | Americhine*.xlsx | 0 | Start Date | native first `Cartons`; if 0 → Open Balance ÷ 30 (NOT the PRD's "All Open ÷ 9" — that was wrong, 37× too high). Ignore col BK (2nd Cartons). |
+| americhine | VSR **API** (src/vsr_fetch.py) | — | startDate | API returns `cartons` PRE-COMPUTED — use as-is (no rule). Auto-pulled in the daily job. `company_in: [AMERICHINE LLC]`. Falls back to the combined file (filtered) if the API is down. |
+| indochine_rnd | Americhine*.xlsx (same combined file) | 0 | Start Date | native first `Cartons`; if 0 → Open Balance ÷ 30. `company_in: [Indochine, RND]` — Americhine rows in the file are IGNORED (API is authoritative), so no double-count. Manual upload. |
 | rdg | RDG*.xls (legacy!) | 3 (title block) | Start Date | All Open ÷ 9; preclean: drop rows where `Cust. No.` is a date |
+
+The old single `americhine` source (all 3 companies from one file, native Cartons /
+Open Balance÷30) split on 2026-08 when Americhine got a VSR API: `americhine` (API,
+AMERICHINE LLC) + `indochine_rnd` (uploaded file, Indochine+RND). `company_in` filter
+keeps them from overlapping. VSR API: GET https://vsr2.americhine.com/rest/icg-api/
+inbound-orders, Bearer VSR_API_KEY, paginated; returns cartons already computed.
 
 Gotchas: RDG is .xls (xlrd; dates are Excel serials like 46148.0). MLG headers
 contain newlines ("Pick\nQty") — transform normalizes whitespace. Americhine has
