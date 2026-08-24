@@ -14,10 +14,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4          # this (code) repo
 
-      - name: Get the previous snapshot from the private data repo
+      - name: Check out the private data repo
+        uses: actions/checkout@v4
+        with:
+          repository: kalavai-net/warehouse-data
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: _data
+          persist-credentials: true        # so the push below is authenticated
+
+      - name: Bring the previous snapshot into data/
         run: |
-          git clone --depth 1 \
-            https://x-access-token:${{ secrets.DATA_REPO_TOKEN }}@github.com/kalavai-net/warehouse-data.git _data
           mkdir -p data
           cp _data/data/*.parquet _data/data/*.json data/ 2>/dev/null || true
 
