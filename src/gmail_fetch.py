@@ -31,7 +31,7 @@ import transform as T  # noqa: E402  (config + paths + logging helpers)
 import pipeline  # noqa: E402
 
 IMAP_HOST = "imap.gmail.com"
-LOOKBACK_DAYS = 5  # how far back to look for the most recent report of each source
+LOOKBACK_DAYS = 14  # tolerate multi-day gaps (weekends, skipped sends); pick the newest
 
 log = logging.getLogger("gmail_fetch")
 
@@ -101,7 +101,11 @@ def fetch_bytes() -> tuple[dict, list, dict]:
             f"Gmail login failed: {e}. Check GMAIL_ADDRESS / GMAIL_APP_PASSWORD "
             "(use an App Password, not your normal password).") from e
     try:
-        imap.select("INBOX")
+        # Search "All Mail", not just the inbox, so auto-ARCHIVED reports are
+        # still found (Annie archives Catalyst/MLG/Novo automatically). Fall back
+        # to INBOX if the Gmail special folder isn't available.
+        if imap.select('"[Gmail]/All Mail"')[0] != "OK":
+            imap.select("INBOX")
         for source, cfg in _email_sources(config).items():
             subj = cfg["email"]["subject_contains"]
             found = _find_latest_attachment(imap, subj)
